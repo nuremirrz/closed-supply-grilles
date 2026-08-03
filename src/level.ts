@@ -1,6 +1,7 @@
 import {
   activeCameraPreset,
   flyToCameraPresetByName,
+  type AirflowVisual,
   type CameraPreset,
   type ClickTarget,
   type HudProgressBase,
@@ -96,19 +97,45 @@ export interface TaskProgress extends HudProgressBase {
   louversOpen: boolean
 }
 
+/** A supply register: its node in the GLB, the station framing it, its airflow. */
+interface Register {
+  node: string
+  preset: string
+  flow: () => number
+}
+
 /**
- * What the anemometer reads, which here depends on *where* it is as much as on
- * the fault: the shut bedroom damper forces its share of the air through the
- * living-room register, so that one reads above the norm while the bedroom
- * reads nothing. Opening the damper balances both back to healthy.
+ * How much air each register passes right now — the level's single source of
+ * truth, feeding both the device and the visible stream so the two can never
+ * disagree.
+ *
+ * The shut bedroom damper forces its share through the living-room register, so
+ * that one runs above the norm while the bedroom passes nothing. Opening the
+ * damper balances both back to healthy.
  */
-export function createReading(louvers: LouversApi): () => number {
-  return () => {
-    if (activeCameraPreset() === 'supply_bedroom') {
-      return louvers.isOpen() ? FLOW_HEALTHY : FLOW_NONE
-    }
-    return louvers.isOpen() ? FLOW_HEALTHY : FLOW_OVER
-  }
+export function createRegisters(louvers: LouversApi): Register[] {
+  return [
+    {
+      node: 'supply_duct',
+      preset: 'supply_air',
+      flow: () => (louvers.isOpen() ? FLOW_HEALTHY : FLOW_OVER),
+    },
+    {
+      node: 'supply_bedroom',
+      preset: 'supply_bedroom',
+      flow: () => (louvers.isOpen() ? FLOW_HEALTHY : FLOW_NONE),
+    },
+  ]
+}
+
+/** What the device reads: the flow at whichever register the camera is at. */
+export function createReading(registers: readonly Register[]): () => number {
+  return () => registers.find((r) => r.preset === activeCameraPreset())?.flow() ?? FLOW_HEALTHY
+}
+
+/** Visible streams at both registers, off the same flows. */
+export function createAirflowConfig(registers: readonly Register[]): AirflowVisual[] {
+  return registers.map((r) => ({ objectName: r.node, flow: r.flow }))
 }
 
 // GLB object each label rides on, its i18n key, and the steps it lights up on.

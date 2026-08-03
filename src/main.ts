@@ -1,5 +1,6 @@
 import {
   applyStartCamera,
+  createAirflowVisuals,
   createBreadcrumbs,
   createCameraStrip,
   createHints,
@@ -27,8 +28,10 @@ import {
   LABELS,
   TASKS,
   createClickTargets,
+  createAirflowConfig,
   createDevicePose,
   createReading,
+  createRegisters,
   hideForeignProps,
   createStateConfig,
   createTools,
@@ -72,6 +75,8 @@ createBreadcrumbs(ctx, inspect)
 const louvers = createLouvers(ctx)
 // The flow's isDone/onAction close over the prop and the closer-look view, so
 // it is built after both.
+// How much air each register passes; the device and the visible stream share it.
+const registers = createRegisters(louvers)
 const states = createStateConfig(ctx, louvers, inspect)
 // 3D labels + active-object highlight, driven by the HUD's state changes.
 const hints = createHints(ctx, LABELS)
@@ -80,13 +85,15 @@ const overlay = createResultOverlay()
 const hud = createHud<GameState, TaskProgress>(ctx, {
   states,
   tasks: TASKS,
-  reading: createReading(louvers),
+  reading: createReading(registers),
   devicePose: createDevicePose(),
   progress: (base) => ({ ...base, louversOpen: louvers.isOpen() }),
   slug: 'closed-supply-grilles',
   hints,
   overlay,
 })
+// Visible airflow out of both registers, so the starved one reads as dead.
+createAirflowVisuals(ctx, createAirflowConfig(registers))
 createInteractions(ctx, { clickTargets: createClickTargets(louvers, hud) })
 // Bottom-right inventory drawer: drag the anemometer onto either register.
 const inventory = createInventory(ctx, { tools: createTools(hud) })
