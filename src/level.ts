@@ -1,10 +1,10 @@
-import * as THREE from 'three'
 import {
   activeCameraPreset,
   flyToCameraPresetByName,
   type CameraPreset,
   type ClickTarget,
   type HudProgressBase,
+  type InspectApi,
   type LabelConfig,
   type ReadingTaker,
   type SceneContext,
@@ -12,70 +12,11 @@ import {
   type TaskConfig,
   type Tool,
 } from '@hvac/engine'
-import type { WardrobeApi } from './wardrobe'
+import type { LouversApi } from './louvers'
 
-/**
- * Nodes this level's GLB is expected to carry. TEMPORARY scaffolding for the
- * model swap — `louvers`, `lever` and `supply_bedroom` are new in v2, so this
- * confirms they actually arrived. Drop it once the level's mechanics are wired.
- */
-export const EXPECTED_OBJECTS = [
-  'house_shell',
-  'supply_duct',
-  'supply_bedroom',
-  'return_grille',
-  'filter',
-  'anemometer',
-  'wardrobe',
-  'louvers',
-  'lever',
-]
-
-/** Logs a ✅/❌ per expected node. Call from the loadModel callback. */
-export function checkModelObjects(ctx: SceneContext): void {
-  const missing: string[] = []
-  const lines = EXPECTED_OBJECTS.map((name) => {
-    const found = !!ctx.scene.getObjectByName(name)
-    if (!found) missing.push(name)
-    return `${found ? '✅' : '❌'} ${name}`
-  })
-  console.log(
-    `[model] ${EXPECTED_OBJECTS.length - missing.length}/${EXPECTED_OBJECTS.length} expected nodes found\n` +
-      lines.join('\n'),
-  )
-  if (missing.length) console.warn('[model] missing nodes:', missing)
-
-  // Everything the GLB actually contains, so a renamed node is easy to spot.
-  const actual: string[] = []
-  ctx.scene.traverse((o) => {
-    if (o.name) actual.push(o.name)
-  })
-  console.log('[model] all named nodes:', actual)
-
-  // World placement of each node — the raw material for this level's camera
-  // presets, which still hold the previous model's coordinates.
-  const rows = EXPECTED_OBJECTS.map((name) => {
-    const obj = ctx.scene.getObjectByName(name)
-    if (!obj) return { node: name, found: false }
-    const box = new THREE.Box3().setFromObject(obj)
-    const c = box.getCenter(new THREE.Vector3())
-    const s = box.getSize(new THREE.Vector3())
-    const f = (n: number) => Number(n.toFixed(2))
-    return {
-      node: name,
-      found: true,
-      centre: `${f(c.x)}, ${f(c.y)}, ${f(c.z)}`,
-      size: `${f(s.x)} × ${f(s.y)} × ${f(s.z)}`,
-    }
-  })
-  console.table(rows)
-
-  // Expose the scene for ad-hoc inspection from the console during the port.
-  ;(window as unknown as { __ctx: SceneContext }).__ctx = ctx
-}
-
-// Fixed inspection viewpoints, named for the HVAC stage each one frames. The
+// Fixed inspection viewpoints, named for the room each one frames. The
 // coordinates belong to this level's model; the first is the starting camera.
+// The return side plays no part in this problem, so it gets no station.
 export const CAMERAS: CameraPreset[] = [
   {
     name: 'system_overview',
@@ -88,31 +29,86 @@ export const CAMERAS: CameraPreset[] = [
     target: { x: 4.17, y: 2.84, z: 0.71 },
   },
   {
-    name: 'return_air',
-    position: { x: 2.05, y: 0.19, z: -0.34 },
-    target: { x: 2.05, y: 2.84, z: 0.71 },
-  },
-  {
-    name: 'air_filter',
-    position: { x: 2.01, y: 1.44, z: 0.68 },
-    target: { x: 2.01, y: 3.13, z: 0.71 },
+    // The bedroom register is the mirror of the living-room one, across the
+    // house at x ≈ −2.49. Framed from below and slightly back, so the damper
+    // and its lever both sit in shot.
+    name: 'supply_bedroom',
+    position: { x: -2.49, y: 1.7, z: -0.55 },
+    target: { x: -2.49, y: 2.82, z: 1.1 },
   },
 ]
 
 // Stations you can look closer at — everything except the wide overview.
-export const INSPECTABLE = ['supply_air', 'return_air', 'air_filter']
+export const INSPECTABLE = ['supply_air', 'supply_bedroom']
+
+/**
+ * Props that ship in the shared house model but belong to another level's
+ * problem. The wardrobe is Problem 2's blockage; here it only stands in the way
+ * of the living-room register, so it is hidden rather than removed from the GLB.
+ */
+const FOREIGN_PROPS = ['wardrobe']
+
+/** Hides the other levels' props. Call once the model has loaded. */
+export function hideForeignProps(ctx: SceneContext): void {
+  for (const name of FOREIGN_PROPS) {
+    const obj = ctx.scene.getObjectByName(name)
+    if (obj) obj.visible = false
+  }
+}
+
+/**
+ * Where the anemometer parks at each station, in world space. Both registers
+ * are the same part mirrored across the house, so the device sits at the centre
+ * of whichever one is being measured, hanging 0.14 m below the ceiling plane.
+ * Without this it would stay at the living-room register the model shipped it
+ * at, and the bedroom measurements would happen with no device in shot.
+ */
+const DEVICE_POSES: Record<string, { x: number; y: number; z: number }> = {
+  supply_air: { x: 4.15, y: 2.7, z: 0.68 },
+  supply_bedroom: { x: -2.48, y: 2.7, z: 0.68 },
+}
+
+/** Carries the device to the register the camera is at. */
+export function createDevicePose(): () => { x: number; y: number; z: number } | null {
+  return () => DEVICE_POSES[activeCameraPreset() ?? ''] ?? null
+}
+
+/** Airflow at a register, in m/s. Healthy band is 2–3.5 (see the state config). */
+const FLOW_HEALTHY = 2.5
+/** With the bedroom damper shut, its share is forced through the living room. */
+const FLOW_OVER = 4.2
+/** A shut damper passes nothing at all. */
+const FLOW_NONE = 0
 
 export type GameState =
   | 'overview'
-  | 'measure_low'
-  | 'locate_block'
-  | 'move_wardrobe'
+  | 'measure_living'
+  | 'goto_bedroom'
+  | 'measure_bedroom'
+  | 'locate_louvers'
+  | 'open_louvers'
   | 'measure_ok'
+  | 'recheck_living'
   | 'complete'
 
 /** What the player has actually done, independent of where the guided flow sits. */
 export interface TaskProgress extends HudProgressBase {
-  blockCleared: boolean
+  louversOpen: boolean
+}
+
+/**
+ * What the anemometer reads, which here depends on *where* it is as much as on
+ * the fault: the shut bedroom damper forces its share of the air through the
+ * living-room register, so that one reads above the norm while the bedroom
+ * reads nothing. Opening the damper balances both back to healthy.
+ */
+export function createReading(louvers: LouversApi): () => number {
+  return () => {
+    if (activeCameraPreset() === 'supply_bedroom') {
+      return louvers.isOpen() ? FLOW_HEALTHY : FLOW_NONE
+    }
+    return louvers.isOpen() ? FLOW_HEALTHY : FLOW_OVER
+  }
 }
 
 // GLB object each label rides on, its i18n key, and the steps it lights up on.
@@ -120,38 +116,52 @@ export const LABELS: LabelConfig[] = [
   {
     objectName: 'supply_duct',
     labelKey: 'label.supply',
-    activeOnStates: ['measure_low', 'measure_ok'],
+    activeOnStates: ['measure_living', 'recheck_living'],
   },
   {
-    objectName: 'wardrobe',
-    labelKey: 'label.wardrobe',
-    activeOnStates: ['locate_block', 'move_wardrobe'],
+    objectName: 'supply_bedroom',
+    labelKey: 'label.bedroom',
+    activeOnStates: ['goto_bedroom', 'measure_bedroom', 'locate_louvers', 'measure_ok'],
   },
+  { objectName: 'louvers', labelKey: 'label.louvers', activeOnStates: ['open_louvers'] },
 ]
 
 // The checklist is keyed to real accomplishments, not the flow's position, so a
-// task done out of order still ticks the moment it actually happens.
+// task done out of order — e.g. opening the damper before ever measuring —
+// still ticks the moment it actually happens.
 export const TASKS: TaskConfig<TaskProgress>[] = [
-  { taskKey: 'task.check_supply', done: (p) => p.supplyMeasured },
-  { taskKey: 'task.move_wardrobe', done: (p) => p.blockCleared },
+  { taskKey: 'task.measure', done: (p) => p.supplyMeasured },
+  { taskKey: 'task.open_louvers', done: (p) => p.louversOpen },
   { taskKey: 'task.remeasure', done: (p) => p.airflowRechecked },
 ]
 
 /**
- * Ordered flow for Problem 2 (blocked supply). The whole diagnosis happens at the
- * supply: measure low → notice the wardrobe → slide it aside → measure normal.
+ * Ordered flow for Problem 3 (closed supply grilles). The diagnosis is a
+ * comparison: the living-room register reads high, the bedroom one reads
+ * nothing, and the difference is what points at the shut damper.
  *
- * Each `onAction` closes over the wardrobe, changes the world and then moves the
- * flow on itself — the engine never sees the prop. `isDone` covers the other
- * route: a direct click on the object changes the same world, and the poll picks
- * it up.
+ * Each `onAction` closes over the level's own prop, changes the world and then
+ * moves the flow on itself — the engine never sees a damper. `isDone` covers the
+ * other route: a direct click on the object changes the same world, and the poll
+ * picks it up.
  */
 export function createStateConfig(
   ctx: SceneContext,
-  wardrobe: WardrobeApi,
+  louvers: LouversApi,
+  inspect: InspectApi,
 ): StateConfig<GameState> {
   return {
-    order: ['overview', 'measure_low', 'locate_block', 'move_wardrobe', 'measure_ok', 'complete'],
+    order: [
+      'overview',
+      'measure_living',
+      'goto_bedroom',
+      'measure_bedroom',
+      'locate_louvers',
+      'open_louvers',
+      'measure_ok',
+      'recheck_living',
+      'complete',
+    ],
     data: {
       overview: {
         hintKey: 'state.overview.hint',
@@ -163,54 +173,84 @@ export function createStateConfig(
           flow.advance()
         },
       },
-      measure_low: {
-        hintKey: 'state.measure_low.hint',
+      measure_living: {
+        hintKey: 'state.measure_living.hint',
         cameraPreset: 'supply_air',
         btnKey: 'state.measure.btn',
         measuring: true,
-        // Airflow already healthy (wardrobe cleared early) → problem solved, so
-        // skip the diagnose/clear steps straight to the finish.
-        onAction: (flow) => (wardrobe.isMovedAway() ? flow.jumpTo('complete') : flow.advance()),
+        // Reads healthy already → the damper was opened before diagnosing, so
+        // there is nothing left to find.
+        onAction: (flow) => (louvers.isOpen() ? flow.jumpTo('complete') : flow.advance()),
       },
-      locate_block: {
-        // No camera cut: we are already at the supply from measuring, and that
-        // view frames the wardrobe — the label + highlight move onto it.
-        hintKey: 'state.locate_block.hint',
-        btnKey: 'state.locate_block.btn',
-        // No onAction → the button just advances: "Look around" acknowledges.
-      },
-      move_wardrobe: {
-        // Bound to the supply view for now (duct + wardrobe in frame). A dedicated
-        // 'wardrobe' preset can be added later.
-        hintKey: 'state.move_wardrobe.hint',
-        cameraPreset: 'supply_air',
-        btnKey: 'state.move_wardrobe.btn',
-        isDone: () => wardrobe.isMovedAway(),
+      goto_bedroom: {
+        hintKey: 'state.goto_bedroom.hint',
+        btnKey: 'state.goto_bedroom.btn',
+        isDone: () => activeCameraPreset() === 'supply_bedroom',
         onAction: (flow) => {
-          wardrobe.moveAway()
+          flyToCameraPresetByName(ctx, 'supply_bedroom')
+          flow.advance()
+        },
+      },
+      measure_bedroom: {
+        hintKey: 'state.measure_bedroom.hint',
+        cameraPreset: 'supply_bedroom',
+        btnKey: 'state.measure.btn',
+        measuring: true,
+        // No onAction → the button just advances once the zero is on screen.
+      },
+      locate_louvers: {
+        // No camera cut: we are already at the bedroom register from measuring.
+        // The step is the close-up itself, so it ends when the player is in it.
+        hintKey: 'state.locate_louvers.hint',
+        btnKey: 'state.locate_louvers.btn',
+        isDone: () => inspect.isInspecting(),
+        onAction: (flow) => {
+          inspect.enter()
+          flow.advance()
+        },
+      },
+      open_louvers: {
+        // Deliberately no cameraPreset: a preset flight would count as leaving
+        // the closer look and drop us straight back out of it. The damper is
+        // opened from the close-up, where the lever is actually legible.
+        hintKey: 'state.open_louvers.hint',
+        btnKey: 'state.open_louvers.btn',
+        isDone: () => louvers.isOpen(),
+        onAction: (flow) => {
+          louvers.open()
           flow.advance()
         },
       },
       measure_ok: {
-        // Shares the button key with measure_low — one "Measure" label, no dupe.
+        // Shares the button key with the earlier measurements — one "Measure"
+        // label, no dupe. The preset pulls back out of the close-up.
         hintKey: 'state.measure_ok.hint',
+        cameraPreset: 'supply_bedroom',
+        btnKey: 'state.measure.btn',
+        measuring: true,
+        // Only move on once the air is actually flowing; if the damper was swung
+        // shut again the bedroom is starved, so wait until it is open.
+        onAction: (flow) => {
+          if (louvers.isOpen()) flow.advance()
+        },
+      },
+      recheck_living: {
+        // Back to where the diagnosis started: the register that read 4.2 should
+        // now read normal, which is what proves the system is balanced rather
+        // than just the bedroom unblocked. The preset carries the camera there.
+        hintKey: 'state.recheck_living.hint',
         cameraPreset: 'supply_air',
         btnKey: 'state.measure.btn',
         measuring: true,
-        // Only finish once the airflow actually reads healthy; if the wardrobe
-        // was put back the supply is blocked again, so wait until it's cleared.
-        onAction: (flow) => {
-          if (wardrobe.isMovedAway()) flow.advance()
-        },
       },
       complete: {
         hintKey: 'state.complete.hint',
       },
     },
-    // Airflow at the supply, in m/s. It depends on whether the supply is blocked,
-    // not on the step: the wardrobe chokes the flow (low), moving it aside restores
-    // it (healthy). The anemometer reads whichever is physically true when measured.
-    airflow: { low: 0.7, ok: 2.5, normMin: 2, normMax: 3.5 },
+    // Healthy band, in m/s. What the device reads is createReading() above:
+    // 4.2 at the living room and 0 in the bedroom while the damper is shut, 2.5
+    // at both once it is open. Above the band counts as a fault too.
+    airflow: { normMin: 2, normMax: 3.5 },
   }
 }
 
@@ -221,8 +261,9 @@ export function createTools(hud: ReadingTaker): Tool[] {
       id: 'anemometer',
       labelKey: 'tool.anemometer',
       iconNode: 'anemometer',
-      // The device parks on the supply grille while measuring, so accept either.
-      targetNodes: ['supply_duct', 'anemometer'],
+      // Either register is a valid place to hold the device, plus the device
+      // itself once it is parked.
+      targetNodes: ['supply_duct', 'supply_bedroom', 'anemometer'],
       usable: () => hud.canTakeReading(),
       apply: () => hud.takeReading(),
     },
@@ -230,20 +271,25 @@ export function createTools(hud: ReadingTaker): Tool[] {
 }
 
 /** Clickable objects: a click travels to them, then acts once already framed. */
-export function createClickTargets(wardrobe: WardrobeApi, hud: ReadingTaker): ClickTarget[] {
+export function createClickTargets(louvers: LouversApi, hud: ReadingTaker): ClickTarget[] {
   return [
     { objectName: 'supply_duct', preset: 'supply_air' },
+    { objectName: 'supply_bedroom', preset: 'supply_bedroom' },
     // The device only exists while measuring, and the step already parks the
     // camera on it — so a click is always its own button, never a trip.
     {
       objectName: 'anemometer',
       preset: 'supply_air',
+      // The device travels between registers, so wherever it is standing is a
+      // place a click means "read", never "travel".
+      redundantFrom: ['supply_bedroom'],
       act: () => hud.takeReading(),
       canAct: () => hud.canTakeReading(),
     },
-    // The wardrobe sits in the supply view, so from there a click is its own
-    // button. It slides freely either way at any time — move it aside or put it
-    // back — and the airflow reading tracks whichever side it ends up on.
-    { objectName: 'wardrobe', preset: 'supply_air', act: () => wardrobe.toggle() },
+    // Damper and lever are one control: the plate is the big target, the lever
+    // is the small one the client actually reaches for. Both swing it either
+    // way at any time, and the reading tracks whichever side it ends up on.
+    { objectName: 'louvers', preset: 'supply_bedroom', act: () => louvers.toggle() },
+    { objectName: 'lever', preset: 'supply_bedroom', act: () => louvers.toggle() },
   ]
 }

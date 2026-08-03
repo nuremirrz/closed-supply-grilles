@@ -19,15 +19,17 @@ import {
   setLang,
   t,
 } from '@hvac/engine'
-import { createWardrobe } from './wardrobe'
+import { createLouvers } from './louvers'
 import { dict } from './dictionary'
 import {
   CAMERAS,
   INSPECTABLE,
-  checkModelObjects,
   LABELS,
   TASKS,
   createClickTargets,
+  createDevicePose,
+  createReading,
+  hideForeignProps,
   createStateConfig,
   createTools,
   type GameState,
@@ -66,10 +68,11 @@ const cameraStrip = createCameraStrip(ctx)
 // "Look closer" inspect view + top-center breadcrumbs that reflect the location.
 const inspect = createInspect(ctx)
 createBreadcrumbs(ctx, inspect)
-// Shared prop: the scripted button and a direct click both slide the wardrobe.
-const wardrobe = createWardrobe(ctx)
-// The flow's isDone/onAction close over the prop, so it is built after it.
-const states = createStateConfig(ctx, wardrobe)
+// Shared prop: the scripted button and a direct click both swing the damper.
+const louvers = createLouvers(ctx)
+// The flow's isDone/onAction close over the prop and the closer-look view, so
+// it is built after both.
+const states = createStateConfig(ctx, louvers, inspect)
 // 3D labels + active-object highlight, driven by the HUD's state changes.
 const hints = createHints(ctx, LABELS)
 // Level-complete result card (shown on the final state; Restart reloads).
@@ -77,17 +80,18 @@ const overlay = createResultOverlay()
 const hud = createHud<GameState, TaskProgress>(ctx, {
   states,
   tasks: TASKS,
-  isFaultCleared: () => wardrobe.isMovedAway(),
-  progress: (base) => ({ ...base, blockCleared: wardrobe.isMovedAway() }),
-  slug: 'blocked-duct',
+  reading: createReading(louvers),
+  devicePose: createDevicePose(),
+  progress: (base) => ({ ...base, louversOpen: louvers.isOpen() }),
+  slug: 'closed-supply-grilles',
   hints,
   overlay,
 })
-createInteractions(ctx, { clickTargets: createClickTargets(wardrobe, hud) })
-// Bottom-right inventory drawer: drag the anemometer onto the supply to measure.
+createInteractions(ctx, { clickTargets: createClickTargets(louvers, hud) })
+// Bottom-right inventory drawer: drag the anemometer onto either register.
 const inventory = createInventory(ctx, { tools: createTools(hud) })
 loadModel(ctx, () => {
-  checkModelObjects(ctx) // TEMPORARY: model-swap scaffolding, remove once P3 is wired
+  hideForeignProps(ctx) // the wardrobe belongs to Problem 2, not to this one
   hud.syncModel()
   cameraStrip.capture() // snapshot each preset now the model is in the scene
   inventory.syncModel() // render tool icons from the model
