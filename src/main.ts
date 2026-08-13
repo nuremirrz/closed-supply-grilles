@@ -71,13 +71,13 @@ const cameraStrip = createCameraStrip(ctx)
 // "Look closer" inspect view + top-center breadcrumbs that reflect the location.
 const inspect = createInspect(ctx)
 createBreadcrumbs(ctx, inspect)
-// Shared prop: the scripted button and a direct click both swing the damper.
+// Shared prop: a direct click on the damper or its lever swings it.
 const louvers = createLouvers(ctx)
-// The flow's isDone/onAction close over the prop and the closer-look view, so
-// it is built after both.
+// The flow's isDone closes over the prop and the closer-look view, so it is
+// built after both.
 // How much air each register passes; the device and the visible stream share it.
 const registers = createRegisters(louvers)
-const states = createStateConfig(ctx, louvers, inspect)
+const states = createStateConfig(louvers, inspect)
 // 3D labels + active-object highlight, driven by the HUD's state changes.
 const hints = createHints(ctx, LABELS)
 // Level-complete result card (shown on the final state; Restart reloads).

@@ -1,6 +1,5 @@
 import {
   activeCameraPreset,
-  flyToCameraPresetByName,
   type AirflowVisual,
   type CameraPreset,
   type ClickTarget,
@@ -173,7 +172,6 @@ export const TASKS: TaskConfig<TaskProgress>[] = [
  * picks it up.
  */
 export function createStateConfig(
-  ctx: SceneContext,
   louvers: LouversApi,
   inspect: InspectApi,
 ): StateConfig<GameState> {
@@ -193,17 +191,13 @@ export function createStateConfig(
       overview: {
         hintKey: 'state.overview.hint',
         cameraPreset: 'system_overview',
-        btnKey: 'state.overview.btn',
+        // Getting to the living-room register is the step: click it or take the
+        // camera strip there.
         isDone: () => activeCameraPreset() === 'supply_air',
-        onAction: (flow) => {
-          flyToCameraPresetByName(ctx, 'supply_air')
-          flow.advance()
-        },
       },
       measure_living: {
         hintKey: 'state.measure_living.hint',
         cameraPreset: 'supply_air',
-        btnKey: 'state.measure.btn',
         measuring: true,
         // Reads healthy already → the damper was opened before diagnosing, so
         // there is nothing left to find.
@@ -211,49 +205,33 @@ export function createStateConfig(
       },
       goto_bedroom: {
         hintKey: 'state.goto_bedroom.hint',
-        btnKey: 'state.goto_bedroom.btn',
         isDone: () => activeCameraPreset() === 'supply_bedroom',
-        onAction: (flow) => {
-          flyToCameraPresetByName(ctx, 'supply_bedroom')
-          flow.advance()
-        },
       },
       measure_bedroom: {
         hintKey: 'state.measure_bedroom.hint',
         cameraPreset: 'supply_bedroom',
-        btnKey: 'state.measure.btn',
         measuring: true,
-        // No onAction → the button just advances once the zero is on screen.
+        // The reading's own "continue" press advances once the zero is on screen.
       },
       locate_louvers: {
         // No camera cut: we are already at the bedroom register from measuring.
-        // The step is the close-up itself, so it ends when the player is in it.
+        // The step is the close-up itself, so it ends when the player is in it —
+        // they have to reach for "Inspect" in the breadcrumbs themselves.
         hintKey: 'state.locate_louvers.hint',
-        btnKey: 'state.locate_louvers.btn',
         isDone: () => inspect.isInspecting(),
-        onAction: (flow) => {
-          inspect.enter()
-          flow.advance()
-        },
       },
       open_louvers: {
         // Deliberately no cameraPreset: a preset flight would count as leaving
         // the closer look and drop us straight back out of it. The damper is
-        // opened from the close-up, where the lever is actually legible.
+        // opened from the close-up, where the lever is actually legible — and
+        // reaching for that lever is now the only way through.
         hintKey: 'state.open_louvers.hint',
-        btnKey: 'state.open_louvers.btn',
         isDone: () => louvers.isOpen(),
-        onAction: (flow) => {
-          louvers.open()
-          flow.advance()
-        },
       },
       measure_ok: {
-        // Shares the button key with the earlier measurements — one "Measure"
-        // label, no dupe. The preset pulls back out of the close-up.
+        // The preset pulls back out of the close-up.
         hintKey: 'state.measure_ok.hint',
         cameraPreset: 'supply_bedroom',
-        btnKey: 'state.measure.btn',
         measuring: true,
         // Only move on once the air is actually flowing; if the damper was swung
         // shut again the bedroom is starved, so wait until it is open.
@@ -267,7 +245,6 @@ export function createStateConfig(
         // than just the bedroom unblocked. The preset carries the camera there.
         hintKey: 'state.recheck_living.hint',
         cameraPreset: 'supply_air',
-        btnKey: 'state.measure.btn',
         measuring: true,
       },
       complete: {
