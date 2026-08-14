@@ -15,10 +15,13 @@ const LEVER_NAME = 'lever'
  * room, where it hangs across the view and hides the register it just opened.
  * Up is the one that reads as "opened out of the way".
  *
- * 0.85 rad ≈ 49°: wide enough to clear the slots, short of 90° where the plate
- * would stand edge-on and shrink to a line. To retune, only this matters.
+ * 0.40 rad ≈ 23°: a damper cracked open, not thrown wide. Enough for the slots
+ * behind it to read as uncovered and for the air to have somewhere to go, while
+ * the plate keeps its face to the room rather than swinging up towards edge-on,
+ * where it shrinks to a line and the movement stops being legible. To retune,
+ * only this matters.
  */
-const OPEN_ANGLE = 0.85
+const OPEN_ANGLE = 0.4
 
 // Slower than the grille's slide: a damper on a hinge is a heavier thing than a
 // panel sliding aside, and the lever needs to be readable while it turns.
