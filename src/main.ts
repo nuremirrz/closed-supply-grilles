@@ -63,7 +63,11 @@ onChange(applyDocumentMeta)
 
 // Boot the scene, start on the overview camera (before the first frame), mount
 // the gameplay HUD, then load the model.
-const ctx = createScene(container, { cameras: CAMERAS, inspectable: INSPECTABLE })
+const ctx = createScene(container, {
+  cameras: CAMERAS,
+  inspectable: INSPECTABLE,
+  model: 'House_final3.glb',
+})
 initCameraMotion(ctx)
 applyStartCamera(ctx)
 // Bottom-left camera strip: thumbnail per preset (stills captured after load).

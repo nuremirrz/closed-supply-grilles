@@ -17,24 +17,29 @@ import type { LouversApi } from './louvers'
 // Fixed inspection viewpoints, named for the room each one frames. The
 // coordinates belong to this level's model; the first is the starting camera.
 // The return side plays no part in this problem, so it gets no station.
+//
+// Re-aimed for House_final3.glb. Both registers kept their size and their 2.84
+// ceiling height, so each close-up keeps the framing it had: the camera offsets
+// relative to the register each one looks at are the old ones, applied to the
+// new positions. Only the wide shot needed fresh numbers — the house is deep now
+// (7.7 across Z, was a near-flat 4.85).
 export const CAMERAS: CameraPreset[] = [
   {
     name: 'system_overview',
-    position: { x: 6.29, y: 1.6, z: -12.54 },
-    target: { x: 1.13, y: 2.98, z: 0.82 },
+    position: { x: 7, y: 6.5, z: -19 },
+    target: { x: 3.4, y: 1.4, z: 0.7 },
   },
   {
     name: 'supply_air',
-    position: { x: 4.62, y: 1.43, z: -1.08 },
-    target: { x: 4.17, y: 2.84, z: 0.71 },
+    position: { x: 7.27, y: 1.43, z: -1.07 },
+    target: { x: 6.82, y: 2.84, z: 0.72 },
   },
   {
-    // The bedroom register is the mirror of the living-room one, across the
-    // house at x ≈ −2.49. Framed from below and slightly back, so the damper
-    // and its lever both sit in shot.
+    // The bedroom register sits across the house at x ≈ 0.17. Framed from below
+    // and slightly back, so the damper and its lever both sit in shot.
     name: 'supply_bedroom',
-    position: { x: -2.49, y: 1.7, z: -0.55 },
-    target: { x: -2.49, y: 2.82, z: 1.1 },
+    position: { x: 0.15, y: 1.7, z: -0.55 },
+    target: { x: 0.15, y: 2.82, z: 1.1 },
   },
 ]
 
@@ -64,8 +69,8 @@ export function hideForeignProps(ctx: SceneContext): void {
  * at, and the bedroom measurements would happen with no device in shot.
  */
 const DEVICE_POSES: Record<string, { x: number; y: number; z: number }> = {
-  supply_air: { x: 4.15, y: 2.7, z: 0.68 },
-  supply_bedroom: { x: -2.48, y: 2.7, z: 0.68 },
+  supply_air: { x: 6.8, y: 2.7, z: 0.69 },
+  supply_bedroom: { x: 0.16, y: 2.7, z: 0.68 },
 }
 
 /** Carries the device to the register the camera is at. */
@@ -115,7 +120,7 @@ interface Register {
 export function createRegisters(louvers: LouversApi): Register[] {
   return [
     {
-      node: 'supply_duct',
+      node: 'supply_bedroom1',
       preset: 'supply_air',
       flow: () => (louvers.isOpen() ? FLOW_HEALTHY : FLOW_OVER),
     },
@@ -140,7 +145,7 @@ export function createAirflowConfig(registers: readonly Register[]): AirflowVisu
 // GLB object each label rides on, its i18n key, and the steps it lights up on.
 export const LABELS: LabelConfig[] = [
   {
-    objectName: 'supply_duct',
+    objectName: 'supply_bedroom1',
     labelKey: 'label.supply',
     activeOnStates: ['measure_living', 'recheck_living'],
   },
@@ -267,7 +272,7 @@ export function createTools(hud: ReadingTaker): Tool[] {
       iconNode: 'anemometer',
       // Either register is a valid place to hold the device, plus the device
       // itself once it is parked.
-      targetNodes: ['supply_duct', 'supply_bedroom', 'anemometer'],
+      targetNodes: ['supply_bedroom1', 'supply_bedroom', 'anemometer'],
       usable: () => hud.canTakeReading(),
       apply: () => hud.takeReading(),
     },
@@ -277,7 +282,7 @@ export function createTools(hud: ReadingTaker): Tool[] {
 /** Clickable objects: a click travels to them, then acts once already framed. */
 export function createClickTargets(louvers: LouversApi, hud: ReadingTaker): ClickTarget[] {
   return [
-    { objectName: 'supply_duct', preset: 'supply_air' },
+    { objectName: 'supply_bedroom1', preset: 'supply_air' },
     { objectName: 'supply_bedroom', preset: 'supply_bedroom' },
     // The device only exists while measuring, and the step already parks the
     // camera on it — so a click is always its own button, never a trip.
