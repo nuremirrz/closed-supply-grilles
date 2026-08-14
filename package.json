@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@hvac/engine": "file:./vendor/hvac-engine-0.1.0.tgz",
+    "@hvac/engine": "file:vendor/hvac-engine-0.1.0.tgz",
     "three": "^0.185.1"
   },
   "devDependencies": {
